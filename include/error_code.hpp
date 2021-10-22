@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <expect.hpp>
+
 namespace couv {
 
     class error_code
@@ -15,15 +17,21 @@ namespace couv {
         constexpr error_code(int code) noexcept : code(code)  {}
         constexpr operator int() const noexcept { return code; }
         constexpr operator bool() const noexcept { return code; }
+        operator expect<void, error_code>() const noexcept 
+        { 
+            expect<void, error_code> e; 
+            if (code) e = code; 
+            return e;
+        }
 
-        void check() const 
+        void throw_if() const 
         {
             if (code) throw code;
         }
 
         constexpr bool await_ready() const noexcept { return true; }
         constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-        void await_resume() const { check(); }
+        void await_resume() const { throw_if(); }
     };
 
 }

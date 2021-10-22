@@ -8,6 +8,7 @@
 #include <coroutine>
 #include <iostream>
 #include <memory>
+#include <error_code.hpp>
 
 #include <uv.h> // libuv
 
@@ -47,7 +48,7 @@ namespace couv
             timer_handle->data = this;
         }
 
-        int start(uint64_t  timeout, uint64_t repeat = 0) {
+        error_code start(uint64_t  timeout, uint64_t repeat = 0) {
             return uv_timer_start(timer_handle.get(), [](uv_timer_t* timer_handle) {
                 auto self = static_cast<timer*>(timer_handle->data);
                 ++self->ready;
@@ -57,7 +58,7 @@ namespace couv
             }, timeout, repeat);
         }
 
-        int again() {
+        error_code again() {
             return uv_timer_again(timer_handle.get());
         }
 
@@ -65,7 +66,7 @@ namespace couv
             return uv_timer_set_repeat(timer_handle.get(), repeat);
         }
 
-        int stop() {
+        error_code stop() {
             return uv_timer_stop(timer_handle.get());
         }
 

@@ -8,6 +8,7 @@
 #include <coroutine>
 #include <iostream>
 #include <memory>
+#include <error_code.hpp>
 
 #include <uv.h> // libuv
 
@@ -40,7 +41,7 @@ namespace couv
             idle_handle->data = this;
         }
 
-        int start() {
+        error_code start() {
             return uv_idle_start(idle_handle.get(), [](uv_idle_t* idle_handle) {
                 auto self = static_cast<idle*>(idle_handle->data);
                 ++self->ready;
@@ -50,7 +51,7 @@ namespace couv
             });
         }
 
-        int stop() {
+        error_code stop() {
             return uv_idle_stop(idle_handle.get());
         }
 

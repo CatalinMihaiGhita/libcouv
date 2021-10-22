@@ -8,6 +8,7 @@
 #include <coroutine>
 #include <iostream>
 #include <memory>
+#include <error_code.hpp>
 
 #include <uv.h> // libuv
 
@@ -38,7 +39,7 @@ namespace couv
             uv_read_stop(stream.get());
         }
 
-        int start()
+        error_code start() noexcept
         {
             return uv_read_start(stream.get(),
                 [](uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {

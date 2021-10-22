@@ -7,6 +7,7 @@
 
 #include <task.hpp>
 #include <signal.hpp>
+#include <idle.hpp>
 #include <timer.hpp>
 #include <tcp.hpp>
 #include <work.hpp>

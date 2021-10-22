@@ -5,14 +5,14 @@
 
 namespace couv {
 
-template <typename T = void>
+template <typename T = void, typename E = std::exception_ptr>
 class expect
 {
-    std::variant<std::exception_ptr, T> var;
+    std::variant<E, T> var;
 
 public:
     expect(const T& t) : var(t) {}
-    expect(std::exception_ptr e) : var(std::move(e)) {}
+    expect(const E& e) : var(e) {}
 
     void operator=(const T& t) 
     {
@@ -24,14 +24,14 @@ public:
         var.emplace<1>(std::move(t));
     }
 
-    void operator=(std::exception_ptr e) 
+    void operator=(const E& e) 
     {
-        var.emplace<0>(std::move(e));
+        var.emplace<0>(e);
     }
 
-    const std::exception_ptr& error() const 
+    const E& error() const 
     {
-        return get<std::exception_ptr>(var);
+        return get<0>(var);
     }
 
     T& value() & 
@@ -39,31 +39,43 @@ public:
         if (var.index() == 1) 
             return get<T>(var); 
         else
-            std::rethrow_exception(get<std::exception_ptr>(var)); 
+            std::rethrow_exception(get<E>(var)); 
     }
 
     const T& value() const&  
     { 
         if (var.index() == 1) 
-            return get<T>(var); 
-        else
-            std::rethrow_exception(get<std::exception_ptr>(var)); 
+            return get<1>(var); 
+        else {
+            if constexpr (std::is_same_v<std::exception_ptr, E>)
+                std::rethrow_exception(get<0>(var)); 
+            else
+                throw get<0>(var);
+        }
     }
     
     T&& value() &&
     { 
         if (var.index() == 1) 
-            return get<T>(std::move(var)); 
-        else
-            std::rethrow_exception(get<std::exception_ptr>(var)); 
+            return get<1>(std::move(var)); 
+        else {
+            if constexpr (std::is_same_v<std::exception_ptr, E>)
+                std::rethrow_exception(get<0>(var)); 
+            else
+                throw get<0>(var);
+        }
     }
 
     const T&& value() const&&  
     { 
         if (var.index() == 1) 
-            return get<T>(std::move(var)); 
-        else
-            std::rethrow_exception(get<std::exception_ptr>(var)); 
+            return get<1>(std::move(var)); 
+        else {
+            if constexpr (std::is_same_v<std::exception_ptr, E>)
+                std::rethrow_exception(get<0>(var)); 
+            else
+                throw get<0>(var);
+        }
     }
  
     operator bool() const noexcept { return var.index() == 1; }
@@ -73,27 +85,31 @@ public:
     decltype(auto) await_resume() const { return value(); }
 };
 
-template <>
-class expect<void>
+template <typename E>
+class expect<void, E>
 {
-    std::variant<std::exception_ptr, std::monostate> var;
+    std::variant<E, std::monostate> var;
 public:
     expect() : var(std::monostate{}) {}
-    expect(std::exception_ptr e) : var(std::move(e)) {}
+    expect(const E& e) : var(e) {}
 
-    void operator=(std::exception_ptr e) 
+    void operator=(const E& e) 
     {
-        var.emplace<0>(std::move(e));
+        var = e;
     }
 
     void value() const 
     { 
-        if (var.index() == 0) 
-            std::rethrow_exception(get<std::exception_ptr>(var)); 
+        if (var.index() == 0) {
+            if constexpr (std::is_same_v<std::exception_ptr, E>)
+                std::rethrow_exception(get<E>(var)); 
+            else
+                throw get<E>(var);
+        }
     }
 
-    const std::exception_ptr& error() const {
-        return get<std::exception_ptr>(var);
+    const E& error() const {
+        return get<E>(var);
     }
 
     operator bool() const noexcept { return var.index() == 1; }

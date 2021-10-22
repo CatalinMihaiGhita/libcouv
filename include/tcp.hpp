@@ -43,20 +43,18 @@ namespace couv
 
         tcp(const tcp&) = delete;
         
-        int accept(tcp& client)
+        error_code accept(tcp& client) noexcept
         {
             return uv_accept(reinterpret_cast<uv_stream_t*>(socket.get()), 
                 reinterpret_cast<uv_stream_t*>(client.socket.get()));
         }
 
-        expect<void> bind(std::string ip, int port) noexcept
+        error_code bind(std::string ip, int port) noexcept
         {
             struct sockaddr_in bind_addr;
             uv_ip4_addr(ip.c_str(), port, &bind_addr);
             
-            if (auto err = uv_tcp_bind(socket.get(), reinterpret_cast<sockaddr*>(&bind_addr), 0))
-                return std::make_exception_ptr(err);
-            return {};
+            return uv_tcp_bind(socket.get(), reinterpret_cast<sockaddr*>(&bind_addr), 0);
         }
 
         listner listen(int backlog)
