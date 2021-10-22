@@ -16,17 +16,17 @@ public:
 
     void operator=(const T& t) 
     {
-        var.emplace<1>(t);
+        var.template emplace<1>(t);
     }
 
     void operator=(T&& t) 
     {
-        var.emplace<1>(std::move(t));
+        var.template emplace<1>(std::move(t));
     }
 
     void operator=(const E& e) 
     {
-        var.emplace<0>(e);
+        var.template emplace<0>(e);
     }
 
     const E& error() const 

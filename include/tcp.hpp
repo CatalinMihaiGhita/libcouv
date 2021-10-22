@@ -42,6 +42,9 @@ namespace couv
         }
 
         tcp(const tcp&) = delete;
+        tcp& operator=(const tcp&) = delete;
+        tcp(tcp&&) = default;
+        tcp& operator=(tcp&&) = default;
         
         error_code accept(tcp& client) noexcept
         {
@@ -154,10 +157,8 @@ namespace couv
     }
 
     writer::writer(const tcp& tcp) : 
-        write_handle{std::make_unique<uv_write_t>()}, 
-        stream{std::reinterpret_pointer_cast<uv_stream_t>(tcp.socket)},
-        status{1}
+        data{new writer_data{std::reinterpret_pointer_cast<uv_stream_t>(tcp.socket)}} 
     {
-            write_handle->data = this;
+        data->write_handle.data = data.get();
     }
 }

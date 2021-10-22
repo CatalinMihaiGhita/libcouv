@@ -13,7 +13,8 @@
 couv::task<> tcp_test()
 {
     couv::getaddrinfo info("www.google.com", "80");
-    std::cout << co_await info << std::endl;
+    std::cout << (int)co_await info << std::endl;
+
 
     couv::tcp tcp;
     co_await tcp.connect(info);
@@ -33,25 +34,26 @@ couv::task<> tcp_test()
 couv::task<> tcp_server_test()
 {
     couv::tcp tcp;
+    std::vector<couv::tcp> clients;
     co_await tcp.bind("0.0.0.0", 8080);
 
     auto listner = tcp.listen(128);
     while (true) {
         std::cout << "tcp listen" << std::endl;
-        co_await listner;
+        if (co_await listner) {
+            couv::tcp client;
+            if (tcp.accept(client)) {
+                clients.push_back(std::move(client));
+            }
+        }
     }
 }
 
 couv::task<> timer_test()
 {
+    std::cout << "timer start" << std::endl;
     co_await couv::timer(1000);
     std::cout << "timer test" << std::endl;
-}
-
-couv::task<> signal_test()
-{
-    co_await couv::signal{2};
-    std::cout << "got sigint" << std::endl;
 }
 
 couv::work<double> worker(couv::async_sender<int> sender) // thread pool work
@@ -81,16 +83,28 @@ couv::task<> work_test()
     std::cout << "start work from " << std::this_thread::get_id() << std::endl;
     auto print_task = print_progress(std::move(async));
     auto i = co_await worker(std::move(sender));
-    std::cout << "work finished " << i << std::endl;
+    std::cout << "work finished " << i.value() << std::endl;
+}
+
+couv::task<> signal_test()
+{
+    auto server_task = tcp_server_test();
+    auto work_task = work_test();
+    co_await couv::signal{2};
+    std::cout << "got sigint cancel server and work" << std::endl;
+}
+
+std::optional<std::string> test()
+{
+    co_return "Asa";
 }
 
 int main()
 {
+    std::cout << test().value() << std::endl;
     auto tcp_task = tcp_test();
-    auto tcp_sever_task = tcp_server_test();
-    auto signal_task = signal_test();
+    //auto signal_task = signal_test();
     auto timer_task = timer_test();
-    auto work_task = work_test();
     
     std::cout << "loop run" << std::endl;
     return couv::loop();

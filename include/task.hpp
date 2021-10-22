@@ -12,8 +12,9 @@
 namespace couv
 {
     template <class T = void>
-    struct task
+    class task
     {
+    public:
         struct promise_type
         {
             expect<T> _value;
@@ -101,12 +102,14 @@ namespace couv
             return _handle.promise()._value;
         }
 
+    private:
         std::coroutine_handle<promise_type> _handle;
     };
 
     template<>
-    struct task<void>
+    class task<void>
     {
+    public:
         struct promise_type
         {
             expect<> _value;
@@ -182,7 +185,8 @@ namespace couv
         void await_suspend(std::coroutine_handle<> ch) const noexcept {  _handle.promise()._continuation = ch; }
 
         const expect<>& await_resume() const noexcept { return _handle.promise()._value; }
-
+    
+    private:
         std::coroutine_handle<promise_type> _handle;
     };  
 }

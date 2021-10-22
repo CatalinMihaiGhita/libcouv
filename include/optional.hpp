@@ -16,12 +16,12 @@ namespace couv {
         optional_promise(optional_promise const&) = delete;
 
         auto get_return_object() noexcept { 
-            struct extended_optional : public std::optional<T>{
-                optional_promise* promise; 
-                extended_optional(optional_promise* promise) noexcept : promise(promise) { promise->value = this;}
-                extended_optional(extended_optional&& other) noexcept : promise(other.promise) { promise->value = this; }
+            struct storage : public std::optional<T>{
+                storage(optional_promise* promise) noexcept  { promise->value = this;}
+                storage(storage&& other) = delete; 
+                storage(const storage&) = delete;
             };
-            return extended_optional{this};
+            return storage{this};
         }
 
         auto initial_suspend() const noexcept { return std::suspend_never{}; }
@@ -38,7 +38,7 @@ namespace couv {
             std::optional<T>& opt;
             constexpr bool await_ready() const noexcept { return true; }
             constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-            constexpr T& await_resume() const& noexcept { return opt.value(); }
+            constexpr T& await_resume() const& { return opt.value(); }
         };
         return optional_awaiter{opt};
     }
@@ -49,7 +49,7 @@ namespace couv {
             const std::optional<T>& opt;
             constexpr bool await_ready() const noexcept { return true; }
             constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-            constexpr const T& await_resume() const& noexcept { return opt.value(); }
+            constexpr const T& await_resume() const& { return opt.value(); }
         };
         return optional_awaiter{opt};
     }
@@ -60,7 +60,7 @@ namespace couv {
             std::optional<T>&& opt;
             constexpr bool await_ready() const noexcept { return true; }
             constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-            constexpr T&& await_resume() noexcept { return std::move(opt).value(); }
+            constexpr T&& await_resume() { return std::move(opt).value(); }
         };
         return optional_awaiter{opt};
     }
@@ -71,7 +71,7 @@ namespace couv {
             const std::optional<T>&& opt;
             constexpr bool await_ready() const noexcept { return true; }
             constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-            constexpr const T&& await_resume() noexcept { return std::move(opt).value(); }
+            constexpr const T&& await_resume() { return std::move(opt).value(); }
         };
         return optional_awaiter{opt};
     }

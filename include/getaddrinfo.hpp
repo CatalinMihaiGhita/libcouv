@@ -54,7 +54,7 @@ namespace couv
             co_handle = h;
         }
         
-        int await_resume() { 
+        error_code await_resume() { 
             return status;
         };
 

@@ -6,7 +6,6 @@
 #pragma once
 
 #include <coroutine>
-#include <iostream>
 #include <memory>
 #include <error_code.hpp>
 
@@ -16,82 +15,72 @@ namespace couv
 {
     class timer
     {
-        std::unique_ptr<uv_timer_t> timer_handle;
-        std::coroutine_handle<> co_handle;
-        int ready;
+        struct timer_data {
+            uv_timer_t timer_handle;
+            std::coroutine_handle<> co_handle;
+            int ready{0};
+        };
+
+        struct timer_deleter
+        {
+            void operator()(timer_data* data) const noexcept {
+                uv_close(reinterpret_cast<uv_handle_t*>(&data->timer_handle), [](uv_handle_t* timer_handle) {
+                    delete static_cast<timer_data*>(timer_handle->data);
+                });
+            }
+        };
+        
+        std::unique_ptr<timer_data, timer_deleter> data;
 
     public:
-        timer() : 
-            timer_handle{std::make_unique<uv_timer_t>()}, 
-            ready{0} 
+        timer() : data{new timer_data{}, timer_deleter{}}
         {
-            uv_timer_init(uv_default_loop(), timer_handle.get());
-            timer_handle->data = this;
+            uv_timer_init(uv_default_loop(), &data->timer_handle);
+            data->timer_handle.data = data.get();
         }
 
-        timer(uint64_t  timeout, uint64_t repeat = 0) : 
-            timer_handle{std::make_unique<uv_timer_t>()}, 
-            ready{0} 
+        timer(uint64_t  timeout, uint64_t repeat = 0) 
+            : data{new timer_data{}, timer_deleter{}}
         {
-            uv_timer_init(uv_default_loop(), timer_handle.get());
-            timer_handle->data = this;
+            uv_timer_init(uv_default_loop(), &data->timer_handle);
+            data->timer_handle.data = data.get();
             start(timeout, repeat);
         }
 
-
-        timer(const timer&) = delete;
-        timer(timer&& t) : 
-            timer_handle{std::move(t.timer_handle)},
-            co_handle{std::move(t.co_handle)},
-            ready{t.ready}
-        {
-            timer_handle->data = this;
-        }
-
-        error_code start(uint64_t  timeout, uint64_t repeat = 0) {
-            return uv_timer_start(timer_handle.get(), [](uv_timer_t* timer_handle) {
-                auto self = static_cast<timer*>(timer_handle->data);
-                ++self->ready;
-                if (self->co_handle) {
-                    self->co_handle();
+        error_code start(uint64_t  timeout, uint64_t repeat = 0) noexcept {
+            return uv_timer_start(&data->timer_handle, [](uv_timer_t* timer_handle) {
+                auto data = static_cast<timer_data*>(timer_handle->data);
+                ++data->ready;
+                if (data->co_handle) {
+                    data->co_handle();
                 }
             }, timeout, repeat);
         }
 
-        error_code again() {
-            return uv_timer_again(timer_handle.get());
+        error_code again() noexcept {
+            return uv_timer_again(&data->timer_handle);
         }
 
-        void set_repeat(uint64_t repeat) {
-            return uv_timer_set_repeat(timer_handle.get(), repeat);
+        void set_repeat(uint64_t repeat) noexcept {
+            return uv_timer_set_repeat(&data->timer_handle, repeat);
         }
 
-        error_code stop() {
-            return uv_timer_stop(timer_handle.get());
+        error_code stop() noexcept {
+            return uv_timer_stop(&data->timer_handle);
         }
 
-        bool await_ready() const { 
-            return ready; 
+        bool await_ready() const noexcept { 
+            return data->ready; 
         }
 
-        void await_suspend(std::coroutine_handle<> h) {
-            co_handle = h;
+        void await_suspend(std::coroutine_handle<> h) noexcept {
+            data->co_handle = h;
         }
         
-        void await_resume() { 
-            co_handle = nullptr;
-            --ready; 
+        void await_resume() noexcept { 
+            data->co_handle = nullptr;
+            --data->ready; 
         };
-
-        ~timer()
-        {
-            if (timer_handle) {
-                uv_close(reinterpret_cast<uv_handle_t*>(timer_handle.release()), 
-                [](uv_handle_t* req) {
-                    delete reinterpret_cast<uv_timer_t*>(req);
-                });
-            }
-        }
     };
 
 };

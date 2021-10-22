@@ -10,23 +10,25 @@
 #include <memory>
 #include <thread>
 #include <optional>
+#include <expect.hpp>
 
 #include <uv.h> // libuv
 
 namespace couv
 {
     template <class T = void>
-    struct work
+    class work
     {
+    public:
         struct promise_type
         {
             uv_work_t work_handle;
             std::coroutine_handle<> continuation;
             std::coroutine_handle<> thread_pool_continuation;
-            std::optional<T> value;
+            expect<T> value;
             bool ready{false};
 
-            promise_type() = default;
+            promise_type() : continuation{std::noop_coroutine()}, value(nullptr) {}
 
             ~promise_type() {
                 uv_cancel(reinterpret_cast<uv_req_t*>(&work_handle));
@@ -57,8 +59,7 @@ namespace couv
                             if (status != UV_ECANCELED) {
                                 auto self = static_cast<promise_type*>(work_handle->data);
                                 self->ready = true;
-                                if (self->continuation)
-                                    self->continuation();
+                                self->continuation();
                             }
                         });
                     }
@@ -72,12 +73,17 @@ namespace couv
             }
 
             template <typename U>
-            void return_value(U&& v) { 
-                value.emplace(std::forward<U>(v)); 
+            void return_value(U&& v) 
+            { 
+                value = std::forward<U>(v);
             }
-            void unhandled_exception() { }
-        };
 
+            void unhandled_exception() noexcept
+            { 
+                value = std::current_exception();
+            }
+        };
+    
         work(std::coroutine_handle<promise_type> ch)
             : _handle(ch)
         {}
@@ -95,28 +101,40 @@ namespace couv
             }
         }
 
+        void destroy()
+        {
+            if (_handle) {
+                _handle.destroy();
+                _handle = nullptr;
+            }
+        }
+
         bool await_ready() const {
              return  _handle.promise().ready;
         }
         void await_suspend(std::coroutine_handle<> ch) const { 
             _handle.promise().continuation = ch; 
         }
-        const T& await_resume() const { return *_handle.promise().value; }
+        
+        const expect<T>& await_resume() const { return _handle.promise().value; }
 
+    private:
         std::coroutine_handle<promise_type> _handle;
     };
 
     template<>
-    struct work<void>
+    class work<void>
     {
+    public:
         struct promise_type
         {
             uv_work_t work_handle;
             std::coroutine_handle<> continuation;
             std::coroutine_handle<> thread_pool_continuation;
+            expect<void> value;
             bool ready{false};
             
-            promise_type() = default;
+            promise_type() : continuation{std::noop_coroutine()} {}
 
             ~promise_type() {
                 uv_cancel(reinterpret_cast<uv_req_t*>(&work_handle));
@@ -147,8 +165,7 @@ namespace couv
                             if (status != UV_ECANCELED) {
                                 auto self = static_cast<promise_type*>(work_handle->data);
                                 self->ready = true;
-                                if (self->continuation)
-                                    self->continuation();
+                                self->continuation();
                             }
                         });
                     }
@@ -162,9 +179,10 @@ namespace couv
             }
 
             void return_void() noexcept { }         
-            void unhandled_exception() { }
+            void unhandled_exception() noexcept { value = std::current_exception(); }
         };
-
+    
+    
         work(std::coroutine_handle<promise_type> ch)
             : _handle(ch)
         {}
@@ -181,14 +199,24 @@ namespace couv
             }
         }
 
+        void destroy()
+        {
+            if (_handle) {
+                _handle.destroy();
+                _handle = nullptr;
+            }
+        }
+
         bool await_ready() const noexcept {
-             return _handle.promise().ready; 
+            return _handle.promise().ready; 
         }
         void await_suspend(std::coroutine_handle<> ch) const noexcept { 
             _handle.promise().continuation = ch; 
         }
-        void await_resume() const noexcept {}
 
+        const expect<void>& await_resume() const noexcept { return _handle.promise().value; }
+
+    private:
         std::coroutine_handle<promise_type> _handle;
     };  
 
