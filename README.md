@@ -2,7 +2,7 @@
 libuv with c++ coroutines
 
 # Code Examples
-```
+```C++
 couv::task<> tcp_test()
 {
     couv::getaddrinfo info("www.google.com", "80");
@@ -86,4 +86,13 @@ couv::task<> signal_test()
     std::cout << "got sigint cancel server and work" << std::endl;
 }
 
+int main()
+{
+    auto tcp_task = tcp_test();
+    auto signal_task = signal_test();
+    auto timer_task = timer_test();
+    
+    std::cout << "loop run" << std::endl;
+    return couv::loop();
+}
 ```
