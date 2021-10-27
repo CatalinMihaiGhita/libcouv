@@ -11,51 +11,70 @@
 
 namespace couv
 {
+    template <typename T>
+    class task;
+
+    template <typename T>
+    class task_promise
+    {
+        expect<T> _value;
+        std::coroutine_handle<> _continuation;
+        friend class task<T>;
+
+    public:
+        task_promise() : _continuation{std::noop_coroutine()}
+        {
+        }
+
+        task_promise(const task_promise&) = delete;
+        task_promise(task_promise&&) = default;
+
+        std::coroutine_handle<task_promise> get_return_object() noexcept
+        {
+            return std::coroutine_handle<task_promise>::from_promise(*this);
+        }
+        
+        std::coroutine_handle<> continuation() const noexcept { return _continuation; }
+        void set_continuation(std::coroutine_handle<> h) noexcept { _continuation = h; }
+
+        std::suspend_never initial_suspend() { 
+            return {}; 
+        }
+        auto final_suspend() noexcept { 
+            struct final_awaiter
+            {
+                bool await_ready() const noexcept { return false; }
+                auto await_suspend(std::coroutine_handle<task_promise> ch) const noexcept { return ch.promise()._continuation; }
+                void await_resume() const noexcept {}
+            };
+            return final_awaiter{}; 
+        }
+
+        template <typename U>
+        void return_value(U&& value) { 
+            _value = std::forward<U>(value);
+        }
+
+        void return_value(const std::exception_ptr& value) { 
+            _value = value;
+        }
+
+        void return_value(std::exception_ptr&& value) { 
+            _value = std::move(value);
+        }
+
+        void unhandled_exception() { 
+            _value = std::current_exception();
+        }
+    };
+
     template <class T = void>
     class task
     {
     public:
-        struct promise_type
-        {
-            expect<T> _value;
-            std::coroutine_handle<> _continuation;
+        using promise_type = task_promise<T>;
 
-            promise_type() : _continuation{std::noop_coroutine()}
-            {
-            }
-
-            promise_type(const promise_type&) = delete;
-            promise_type(promise_type&&) = default;
-
-
-            task<T> get_return_object() noexcept
-            {
-                return std::coroutine_handle<promise_type>::from_promise(*this);
-            }
-
-            auto initial_suspend() { 
-                return std::suspend_never{}; 
-            }
-            auto final_suspend() noexcept { 
-                struct final_awaiter
-                {
-                    bool await_ready() const noexcept { return false; }
-                    auto await_suspend(std::coroutine_handle<promise_type> ch) const noexcept { return ch.promise()._continuation; }
-                    void await_resume() const noexcept {}
-                };
-                return final_awaiter{}; 
-            }
-
-            template <typename U>
-            void return_value(U&& value) { 
-                _value = std::forward<U>(value);
-            }
-            void unhandled_exception() { 
-                _value = std::current_exception();
-            }
-        };
-
-        task(std::coroutine_handle<promise_type> ch)
+        task(std::coroutine_handle<task_promise<T>> ch)
             : _handle(ch)
         {
         }
@@ -94,56 +113,74 @@ namespace couv
         bool await_ready() const noexcept {
             return _handle.done();
         }
-        void await_suspend(std::coroutine_handle<> ch) const noexcept { 
+        void await_suspend(std::coroutine_handle<> ch) noexcept { 
             _handle.promise()._continuation = ch; 
         }
 
-        const expect<T>& await_resume() const noexcept { 
+        const expect<T>& await_resume() const& noexcept { 
             return _handle.promise()._value;
         }
 
+        expect<T>&& await_resume() && noexcept { 
+            return std::move(_handle.promise()._value);
+        }
+
     private:
-        std::coroutine_handle<promise_type> _handle;
+        std::coroutine_handle<task_promise<T>> _handle;
+    };
+
+    template <>
+    class task_promise<void>
+    {
+        expect<void> _value;
+        std::coroutine_handle<> _continuation;
+        friend class task<void>;
+
+    public:
+        task_promise() : _continuation{std::noop_coroutine()} {}
+
+        task_promise(const task_promise&) = delete;
+        task_promise(task_promise&&) = default;
+
+        std::coroutine_handle<task_promise> get_return_object() noexcept
+        {
+            return std::coroutine_handle<task_promise>::from_promise(*this);
+        }
+
+        std::coroutine_handle<> continuation() const noexcept { return _continuation; }
+        void set_continuation(std::coroutine_handle<> h) noexcept { _continuation = h; }
+        
+        std::suspend_never initial_suspend() { 
+            return {}; 
+        }
+        auto final_suspend() noexcept { 
+            struct final_awaiter
+            {
+                bool await_ready() const noexcept { return false; }
+                auto await_suspend(std::coroutine_handle<task_promise> ch) const noexcept { return ch.promise()._continuation; }
+                void await_resume() const noexcept {}
+            };
+            return final_awaiter{}; 
+        }
+
+        void return_value(const std::exception_ptr& value) { 
+            _value = value;
+        }
+
+        void return_value(std::exception_ptr&& value) { 
+            _value = std::move(value);
+        }
+
+        void unhandled_exception() noexcept {  
+            _value = std::current_exception();
+        }
     };
 
     template<>
     class task<void>
     {
     public:
-        struct promise_type
-        {
-            expect<> _value;
-            std::coroutine_handle<> _continuation;
-
-            promise_type() : _continuation{std::noop_coroutine()} {}
-
-            promise_type(const promise_type&) = delete;
-            promise_type(promise_type&&) = default;
-
-            task<void> get_return_object() noexcept
-            {
-                return std::coroutine_handle<promise_type>::from_promise(*this);
-            }
-
-            auto initial_suspend() { 
-                return std::suspend_never{}; 
-            }
-            auto final_suspend() noexcept { 
-                struct final_awaiter
-                {
-                    bool await_ready() const noexcept { return false; }
-                    auto await_suspend(std::coroutine_handle<promise_type> ch) const noexcept { return ch.promise()._continuation; }
-                    void await_resume() const noexcept {}
-                };
-                return final_awaiter{}; 
-            }
-
-            void return_void() const noexcept {}
-
-            void unhandled_exception() noexcept {  
-                _value = std::current_exception();
-            }
-        };
+        using promise_type = task_promise<void>;
 
         task(std::coroutine_handle<promise_type> ch)
             : _handle(ch)
@@ -182,9 +219,10 @@ namespace couv
 
         bool await_ready() const noexcept { return _handle.done(); }
 
-        void await_suspend(std::coroutine_handle<> ch) const noexcept {  _handle.promise()._continuation = ch; }
+        void await_suspend(std::coroutine_handle<> ch) noexcept { _handle.promise()._continuation = ch; }
 
-        const expect<>& await_resume() const noexcept { return _handle.promise()._value; }
+        const expect<>& await_resume() const & noexcept { return _handle.promise()._value; }
+        expect<>&& await_resume() && noexcept { return std::move(_handle.promise()._value); }
     
     private:
         std::coroutine_handle<promise_type> _handle;

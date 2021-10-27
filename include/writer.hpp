@@ -22,7 +22,7 @@ namespace couv
             uv_write_t write_handle;
             std::string to_write;
             std::coroutine_handle<> co_handle;
-            int status;
+            int status{0};
         };
 
         std::unique_ptr<writer_data> data;
@@ -32,27 +32,24 @@ namespace couv
         writer(writer&&) = default;
         writer& operator=(writer&&) = default;
 
-        writer& write(std::string some_data)
+        error_code write(std::string some_data)
         {
             data->to_write = std::move(some_data);
-            return *this;
+            data->status = 1;
+            uv_buf_t buf = uv_buf_init(data->to_write.data(), data->to_write.size());
+            return uv_write(&data->write_handle, data->stream.get(), &buf, 1,
+                [](uv_write_t* write_handle, int status) {
+                    auto data = static_cast<writer_data*>(write_handle->data);
+                    data->status = status;
+                    if (data->co_handle) {
+                        data->co_handle();  
+                    } 
+                });
         }
         
-        bool await_ready() const noexcept { return false; }
+        bool await_ready() const noexcept { return data->status <= 0; }
 
-        void await_suspend(std::coroutine_handle<> h) noexcept
-        { 
-            data->co_handle = h; 
-            uv_buf_t buf = uv_buf_init(data->to_write.data(), data->to_write.size());
-            uv_write(&data->write_handle, data->stream.get(), &buf, 1,
-            [](uv_write_t* write_handle, int status) {
-                auto data = static_cast<writer_data*>(write_handle->data);
-                [[likely]] if (data->co_handle) {
-                    data->status = status;
-                    data->co_handle();  
-                } else delete data;
-            });
-        } 
+        void await_suspend(std::coroutine_handle<> h) noexcept { data->co_handle = h; } 
 
         error_code await_resume() noexcept
         { 
@@ -62,9 +59,11 @@ namespace couv
 
         ~writer() 
         {
-            [[unlikely]] if (data && data->co_handle) 
+            if (data && data->status == 1) 
             {
-                data->co_handle = nullptr;
+                data->write_handle.cb = [](uv_write_t* write_handle, int) {
+                    delete static_cast<writer_data*>(write_handle->data);
+                };
                 data.release();
             }
         }

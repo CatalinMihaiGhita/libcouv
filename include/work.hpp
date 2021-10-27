@@ -28,7 +28,7 @@ namespace couv
             expect<T> value;
             bool ready{false};
 
-            promise_type() : continuation{std::noop_coroutine()}, value(nullptr) {}
+            promise_type() : continuation{std::noop_coroutine()}, value(std::in_place, nullptr) {}
 
             ~promise_type() {
                 uv_cancel(reinterpret_cast<uv_req_t*>(&work_handle));
@@ -68,8 +68,8 @@ namespace couv
                 return awaitable{this};
             }
 
-            auto final_suspend() noexcept { 
-                return std::suspend_always{};
+            std::suspend_always final_suspend() noexcept { 
+                return {};
             }
 
             template <typename U>
@@ -116,7 +116,8 @@ namespace couv
             _handle.promise().continuation = ch; 
         }
         
-        const expect<T>& await_resume() const { return _handle.promise().value; }
+        const expect<T>& await_resume() const& noexcept { return _handle.promise().value; }
+        expect<T>&& await_resume() && noexcept { return std::move(_handle.promise().value); }
 
     private:
         std::coroutine_handle<promise_type> _handle;
@@ -214,7 +215,8 @@ namespace couv
             _handle.promise().continuation = ch; 
         }
 
-        const expect<void>& await_resume() const noexcept { return _handle.promise().value; }
+        const expect<void>& await_resume() const& noexcept { return _handle.promise().value; }
+        expect<void>&& await_resume() && noexcept { return std::move(_handle.promise().value); }
 
     private:
         std::coroutine_handle<promise_type> _handle;

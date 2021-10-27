@@ -15,7 +15,6 @@ couv::task<> tcp_test()
     couv::getaddrinfo info("www.google.com", "80");
     std::cout << (int)co_await info << std::endl;
 
-
     couv::tcp tcp;
     co_await tcp.connect(info);
     const char* httpget =
@@ -24,7 +23,7 @@ couv::task<> tcp_test()
         "Cache-Control: max-age=0\r\n"
         "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\n"
         "\r\n";
-    co_await tcp.write(httpget);
+    tcp.write(httpget);
     auto reader = tcp.read();
     while (auto data = co_await reader) {
         std::cout << data << std::endl;
@@ -94,16 +93,10 @@ couv::task<> signal_test()
     std::cout << "got sigint cancel server and work" << std::endl;
 }
 
-std::optional<std::string> test()
-{
-    co_return "Asa";
-}
-
 int main()
 {
-    std::cout << test().value() << std::endl;
     auto tcp_task = tcp_test();
-    //auto signal_task = signal_test();
+    auto signal_task = signal_test();
     auto timer_task = timer_test();
     
     std::cout << "loop run" << std::endl;

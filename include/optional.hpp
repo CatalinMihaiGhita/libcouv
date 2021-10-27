@@ -5,76 +5,84 @@
 
 #pragma once
 
+#include <coroutine>
 #include <optional>
+#include <task.hpp>
 
 namespace couv {
     
     template <typename T>
-    struct optional_promise {
-        std::optional<T>* value;
+    class optional_promise {
+        std::optional<T>* opt;
+
+        struct storage : public std::optional<T> {
+            storage(optional_promise* promise) noexcept { promise->opt = this;}
+            storage(const storage& other) = delete; 
+            storage(storage&& other) = delete; 
+            storage& operator=(storage&& other) = delete; 
+            storage& operator=(const storage& other) = delete; 
+        };
+
+    public:
         optional_promise() = default;
         optional_promise(optional_promise const&) = delete;
 
         auto get_return_object() noexcept { 
-            struct storage : public std::optional<T>{
-                storage(optional_promise* promise) noexcept  { promise->value = this;}
-                storage(storage&& other) = delete; 
-                storage(const storage&) = delete;
-            };
             return storage{this};
         }
 
-        auto initial_suspend() const noexcept { return std::suspend_never{}; }
-        auto final_suspend() const noexcept { return std::suspend_never{}; }
+        std::suspend_never initial_suspend() const noexcept { return {}; }
+        std::suspend_never final_suspend() const noexcept { return {}; }
 
         template <typename U = T>
-        void return_value(U&& u) { *value = std::forward<U>(u); }
-        void unhandled_exception() {}
+        constexpr void return_value(U&& value) { *opt = std::forward<U>(value); }
+
+        template <typename U = T>
+        constexpr void return_value(const std::optional<U>& other) { *opt = other; }
+
+        template <typename U = T>
+        constexpr void return_value(std::optional<U>&& other) { *opt = std::move(other); }
+
+        template <typename U>
+        constexpr void return_value(std::nullopt_t) {}
+
+        constexpr void unhandled_exception() const {}
     };
 
     template <typename T>
-    auto operator co_await(std::optional<T>& opt) {
-        struct optional_awaiter {
-            std::optional<T>& opt;
-            constexpr bool await_ready() const noexcept { return true; }
-            constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-            constexpr T& await_resume() const& { return opt.value(); }
-        };
-        return optional_awaiter{opt};
-    }
+    struct optional_awaiter {
+        const std::optional<T>& opt;
+        constexpr bool await_ready() const noexcept { return opt.has_value(); }
+        template <typename U>
+        constexpr void await_suspend(std::coroutine_handle<optional_promise<U>> h) const noexcept { h.destroy(); }
+        template <typename U>
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<task_promise<U>> h) const noexcept {
+            h.promise().return_value(std::make_exception_ptr(std::bad_optional_access{}));
+            return h.promise().continuation();
+        }
+        constexpr const T& await_resume() const noexcept { return *opt; }
+    };
 
     template <typename T>
-    auto operator co_await(const std::optional<T>& opt) {
-        struct optional_awaiter {
-            const std::optional<T>& opt;
-            constexpr bool await_ready() const noexcept { return true; }
-            constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-            constexpr const T& await_resume() const& { return opt.value(); }
-        };
-        return optional_awaiter{opt};
-    }
+    optional_awaiter<T> operator co_await(const std::optional<T>& opt) noexcept { return {opt};}
 
     template <typename T>
-    auto operator co_await(std::optional<T>&& opt) {
-        struct optional_awaiter {
-            std::optional<T>&& opt;
-            constexpr bool await_ready() const noexcept { return true; }
-            constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-            constexpr T&& await_resume() { return std::move(opt).value(); }
-        };
-        return optional_awaiter{opt};
-    }
+    struct move_optional_awaiter {
+        std::optional<T>&& opt;
+        constexpr bool await_ready() const noexcept { return opt.has_value(); }
+        template <typename U>
+        constexpr void await_suspend(std::coroutine_handle<optional_promise<U>> h) const noexcept { h.destroy(); }
+        template <typename U>
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<task_promise<U>> h) const noexcept 
+        {
+            h.promise().return_value(std::make_exception_ptr(std::bad_optional_access{}));
+            return h.promise().continuation();
+        }
+        constexpr T&& await_resume() noexcept { return *std::move(opt); }
+    };
 
     template <typename T>
-    auto operator co_await(const std::optional<T>&& opt) {
-        struct optional_awaiter {
-            const std::optional<T>&& opt;
-            constexpr bool await_ready() const noexcept { return true; }
-            constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-            constexpr const T&& await_resume() { return std::move(opt).value(); }
-        };
-        return optional_awaiter{opt};
-    }
+    move_optional_awaiter<T> operator co_await(std::optional<T>&& opt) noexcept {return {std::move(opt)}; }
 }
 
 template <typename T, typename... Args>

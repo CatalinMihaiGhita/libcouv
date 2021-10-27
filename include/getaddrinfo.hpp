@@ -11,59 +11,52 @@ namespace couv
     class getaddrinfo
     {
         friend class connector;
-        std::unique_ptr<uv_getaddrinfo_t> getaddrinfo_handle;
-        std::coroutine_handle<> co_handle;
-        bool ready;
-        int status;
+        struct getaddrinfo_data {
+            uv_getaddrinfo_t getaddrinfo_handle;
+            std::coroutine_handle<> co_handle;
+            bool ready{false};
+            int status;
+        };
+
+        std::unique_ptr<getaddrinfo_data> data;
 
     public:
         getaddrinfo(const char *node, const char *service, struct addrinfo *hints = nullptr) : 
-            getaddrinfo_handle{std::make_unique<uv_getaddrinfo_t>()}, 
-            ready{0} 
+            data{std::make_unique<getaddrinfo_data>()}
         {
-            getaddrinfo_handle->data = this;
-            uv_getaddrinfo(uv_default_loop(), getaddrinfo_handle.get(), [](uv_getaddrinfo_t *getaddrinfo_handle, int status, struct addrinfo *res) {
-                auto self = static_cast<getaddrinfo*>(getaddrinfo_handle->data);
+            data->getaddrinfo_handle.data = data.get();
+            uv_getaddrinfo(uv_default_loop(), &data->getaddrinfo_handle, [](uv_getaddrinfo_t *getaddrinfo_handle, int status, struct addrinfo *res) {
+                auto data = static_cast<getaddrinfo_data*>(getaddrinfo_handle->data);
                 if (status == UV_ECANCELED) {
-                    delete getaddrinfo_handle;
+                    delete data;
                     return;
                 }
-                self->ready = true;
-                self->status = status;
-                if (self->co_handle) {
-                    self->co_handle();
+                data->ready = true;
+                data->status = status;
+                [[likely]] if (data->co_handle) {
+                    data->co_handle();
                 }
             }, node, service, hints);
         }
 
-        getaddrinfo(const getaddrinfo&) = delete;
-        getaddrinfo(getaddrinfo&& t) : 
-            getaddrinfo_handle{std::move(t.getaddrinfo_handle)},
-            co_handle{std::move(t.co_handle)},
-            ready{t.ready},
-            status{t.status}
-        {
-            getaddrinfo_handle->data = this;
-        }
-
-        bool await_ready() { 
-            return ready; 
+        bool await_ready() const { 
+            return data->ready; 
         }
 
         void await_suspend(std::coroutine_handle<> h) {
-            co_handle = h;
+            data->co_handle = h;
         }
         
-        error_code await_resume() { 
-            return status;
+        error_code await_resume() const { 
+            return data->status;
         };
 
         ~getaddrinfo()
         {
-            if (getaddrinfo_handle) {
-                uv_freeaddrinfo(getaddrinfo_handle->addrinfo);
-                if (uv_cancel(reinterpret_cast<uv_req_t*>(getaddrinfo_handle.get())) == 0) {
-                    getaddrinfo_handle.release();
+            if (data) {
+                uv_freeaddrinfo(data->getaddrinfo_handle.addrinfo);
+                if (uv_cancel(reinterpret_cast<uv_req_t*>(&data->getaddrinfo_handle)) == 0) {
+                    data.release();
                 }
             }
         }

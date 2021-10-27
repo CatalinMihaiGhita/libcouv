@@ -89,49 +89,41 @@ namespace couv
     };
 
     connector::connector(const tcp& tcp, const char* ip, int port) : 
-        req{std::make_unique<uv_connect_t>()}
+        data{std::make_unique<connector_data>()}
     {
-        req->data = this;
+        data->req.data = data.get();
         struct sockaddr_in client_addr;
         uv_ip4_addr(ip, port, &client_addr);
 
-        status = uv_tcp_connect(req.get(), tcp.socket.get(), reinterpret_cast<sockaddr*>(&client_addr),
+        data->status = uv_tcp_connect(&data->req, tcp.socket.get(), reinterpret_cast<sockaddr*>(&client_addr),
             [](uv_connect_t* req, int status) {
-                auto* self = static_cast<connector*>(req->data);
-                if (!self) {
-                    delete req;
-                    return;
-                }
-                self->status = status;
-                if (self->co_handle) {
-                    self->co_handle();
+                auto* data = static_cast<connector_data*>(req->data);
+                data->status = status;
+                [[likely]] if (data->co_handle) {
+                    data->co_handle();
                 }
             });
 
-        if (!status) {
-            status = 1;
+        if (data->status == 0) {
+            data->status = 1;
         }
     }
 
     connector::connector(const tcp& tcp, const getaddrinfo& info) : 
-        req{std::make_unique<uv_connect_t>()}
+        data{std::make_unique<connector_data>()}
     {
-        req->data = this;
-        status = uv_tcp_connect(req.get(), tcp.socket.get(), (const struct sockaddr*)info.getaddrinfo_handle->addrinfo->ai_addr,
+        data->req.data = data.get();
+        data->status = uv_tcp_connect(&data->req, tcp.socket.get(), (const struct sockaddr*)info.data->getaddrinfo_handle.addrinfo->ai_addr,
             [](uv_connect_t* req, int status) {
-                auto* self = static_cast<connector*>(req->data);
-                if (!self) {
-                    delete req;
-                    return;
-                }
-                self->status = status;
-                if (self->co_handle) {
-                    self->co_handle();
+                auto* data = static_cast<connector_data*>(req->data);
+                data->status = status;
+                [[likely]] if (data->co_handle) {
+                    data->co_handle();
                 }
             });
 
-        if (!status) {
-            status = 1;
+        if (data->status == 0) {
+            data->status = 1;
         }
     }
 
@@ -149,9 +141,7 @@ namespace couv
         });
     }
 
-    reader::reader(const tcp& tcp) :
-        stream{std::reinterpret_pointer_cast<uv_stream_t>(tcp.socket)},
-        nread{0}
+    reader::reader(const tcp& tcp) : stream{std::reinterpret_pointer_cast<uv_stream_t>(tcp.socket)}
     {
         stream->data = this;
     }

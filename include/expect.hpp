@@ -8,103 +8,166 @@ namespace couv {
 template <typename T = void, typename E = std::exception_ptr>
 class expect
 {
-    std::variant<E, T> var;
+    std::variant<T, E> var;
 
 public:
+    expect() = default;
+
     expect(const T& t) : var(t) {}
-    expect(const E& e) : var(e) {}
+    expect(T&& t) : var(std::move(t)) {}
 
-    void operator=(const T& t) 
+    expect(std::in_place_t, const E& e) : var(e) {}
+    expect(std::in_place_t, E&& e) : var(std::move(e)) {}
+
+    void emplace(const T& t) 
     {
-        var.template emplace<1>(t);
+        var.template emplace<0>(t);
     }
 
-    void operator=(T&& t) 
+    void emplace(T&& t) 
     {
-        var.template emplace<1>(std::move(t));
+        var.template emplace<0>(std::move(t));
     }
 
-    void operator=(const E& e) 
+    void emplace_error(const E& e) 
     {
-        var.template emplace<0>(e);
+        var.template emplace<1>(e);
+    }
+
+    void emplace_error(E&& e) 
+    {
+        var.template emplace<1>(std::move(e));
+    }
+
+    expect& operator=(const T& t) 
+    {
+        emplace(t);
+        return *this;
+    }
+
+    expect& operator=(T&& t) 
+    {
+        emplace(std::move(t));
+        return *this;
+    }
+
+    expect& operator=(const E& e) 
+    {
+        emplace_error(e);
+        return *this;
+    }
+
+    expect& operator=(E&& e) 
+    {
+        emplace_error(std::move(e));
+        return *this;
     }
 
     const E& error() const 
     {
-        return get<0>(var);
+        return get<1>(var);
     }
 
     T& value() & 
     { 
-        if (var.index() == 1) 
-            return get<T>(var); 
-        else
-            std::rethrow_exception(get<E>(var)); 
+        if (var.index() == 0) 
+            return get<0>(var); 
+        else {
+            if constexpr (std::is_same_v<std::exception_ptr, E>)
+                std::rethrow_exception(get<1>(var)); 
+            else
+                throw get<1>(var);
+        }
     }
 
     const T& value() const&  
     { 
-        if (var.index() == 1) 
-            return get<1>(var); 
+        [[likely]] if (var.index() == 0) 
+            return get<0>(var); 
         else {
             if constexpr (std::is_same_v<std::exception_ptr, E>)
-                std::rethrow_exception(get<0>(var)); 
+                std::rethrow_exception(get<1>(var)); 
             else
-                throw get<0>(var);
+                throw get<1>(var);
         }
     }
     
     T&& value() &&
     { 
-        if (var.index() == 1) 
-            return get<1>(std::move(var)); 
+        [[likely]] if (var.index() == 0) 
+            return get<0>(std::move(var)); 
         else {
             if constexpr (std::is_same_v<std::exception_ptr, E>)
-                std::rethrow_exception(get<0>(var)); 
+                std::rethrow_exception(get<1>(var)); 
             else
-                throw get<0>(var);
+                throw get<1>(var);
         }
     }
 
     const T&& value() const&&  
     { 
-        if (var.index() == 1) 
-            return get<1>(std::move(var)); 
+        [[likely]] if (var.index() == 0) 
+            return get<0>(std::move(var)); 
         else {
             if constexpr (std::is_same_v<std::exception_ptr, E>)
-                std::rethrow_exception(get<0>(var)); 
+                std::rethrow_exception(get<1>(var)); 
             else
-                throw get<0>(var);
+                throw get<1>(var);
         }
     }
- 
-    operator bool() const noexcept { return var.index() == 1; }
 
-    constexpr bool await_ready() const noexcept { return true; }
-    constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-    decltype(auto) await_resume() const { return value(); }
+    constexpr bool has_value() const noexcept { return var.index() == 0; }
+    constexpr operator bool() const noexcept { return has_value(); }
+
+    constexpr bool await_ready() const noexcept { return has_value(); }
+    constexpr void await_suspend(std::coroutine_handle<> h) const noexcept { h.destroy(); }
+    const T& await_resume() const& noexcept { return *get_if<0>(&var); }
+    T&& await_resume() && noexcept { return std::move(*get_if<0>(&var)); }
 };
 
 template <typename E>
 class expect<void, E>
 {
-    std::variant<E, std::monostate> var;
+    std::variant<std::monostate, E> var;
 public:
-    expect() : var(std::monostate{}) {}
-    expect(const E& e) : var(e) {}
+    expect() = default;
 
-    void operator=(const E& e) 
+    expect(const E& e) : var(e) {}
+    expect(E&& e) : var(std::move(e)) {}
+
+    void emplace() {
+        var.template emplace<0>(std::monostate{});
+    }
+
+    void emplace_error(const E& e) 
     {
-        var = e;
+        var.template emplace<1>(e);
+    }
+
+    void emplace_error(E&& e) 
+    {
+        var.template emplace<1>(std::move(e));
+    }
+
+    expect& operator=(const E& e) 
+    {
+        emplace_error(e);
+        return *this;
+    }
+
+    expect& operator=(E&& e) 
+    {
+        emplace_error(std::move(e));
+        return *this;
     }
 
     void value() const 
     { 
-        if (var.index() == 0) {
+        [[unlikely]] if (var.index() == 1) {
             if constexpr (std::is_same_v<std::exception_ptr, E>)
-                std::rethrow_exception(get<E>(var)); 
+                std::rethrow_exception(get<1>(var)); 
             else
-                throw get<E>(var);
+                throw get<1>(var);
         }
     }
 
@@ -112,11 +175,12 @@ public:
         return get<E>(var);
     }
 
-    operator bool() const noexcept { return var.index() == 1; }
+    constexpr bool has_value() const noexcept { return var.index() == 0; }
+    constexpr operator bool() const noexcept { return has_value(); }
 
-    constexpr bool await_ready() const noexcept { return true; }
-    constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
-    void await_resume() const { value(); }
+    constexpr bool await_ready() const noexcept { return has_value(); }
+    constexpr void await_suspend(std::coroutine_handle<> h) const noexcept { h.destroy(); }
+    constexpr void await_resume() const noexcept {}
 };
 
 
@@ -126,21 +190,25 @@ struct expect_promise {
     expect_promise() = default;
     expect_promise(expect_promise const&) = delete;
 
-    auto get_return_object() noexcept { 
-        struct extended_expect : public expect<T>{
+    struct storage : public expect<T>{
             expect_promise* promise; 
-            extended_expect(expect_promise* promise) noexcept : expect<T>(nullptr), promise(promise) { promise->value = this;}
-            extended_expect(extended_expect&& other) noexcept : expect<T>(nullptr), promise(other.promise) { promise->value = this; }
-        };
-        return extended_expect{this};
+            storage(expect_promise* promise) noexcept : expect<T>(std::in_place, std::exception_ptr{}), promise(promise) { promise->value = this;}
+            storage(const storage& other) = delete;
+            storage(storage&& other) = delete;
+            storage& operator=(storage&& other) = delete; 
+            storage& operator=(const storage& other) = delete; 
+    };
+
+    auto get_return_object() noexcept { 
+        return storage{this};
     }
 
-    auto initial_suspend() const noexcept { return std::suspend_never{}; }
-    auto final_suspend() const noexcept { return std::suspend_never{}; }
+    std::suspend_never initial_suspend() const noexcept { return {}; }
+    std::suspend_never final_suspend() const noexcept { return {}; }
 
     template <typename U = T>
     void return_value(U&& u) { *value = std::forward<U>(u); }
-    void unhandled_exception() { *value = std::current_exception(); }
+    void unhandled_exception() noexcept { *value = std::current_exception(); }
 };
 
 template <>
@@ -149,20 +217,24 @@ struct expect_promise<void> {
     expect_promise() = default;
     expect_promise(expect_promise const&) = delete;
 
-    auto get_return_object() noexcept { 
-        struct extended_expect : public expect<>{
+     struct storage : public expect<> {
             expect_promise* promise; 
-            extended_expect(expect_promise* promise) noexcept : promise(promise) { promise->value = this;}
-            extended_expect(extended_expect&& other) noexcept : promise(other.promise) { promise->value = this; }
-        };
-        return extended_expect{this};
+            storage(expect_promise* promise) noexcept : promise(promise) { promise->value = this;}
+            storage(const storage& other) = delete;
+            storage(storage&& other) = delete;
+            storage& operator=(storage&& other) = delete; 
+            storage& operator=(const storage& other) = delete; 
+    };
+
+    auto get_return_object() noexcept { 
+        return storage{this};
     }
 
     auto initial_suspend() const noexcept { return std::suspend_never{}; }
     auto final_suspend() const noexcept { return std::suspend_never{}; }
 
-    void return_void() {}
-    void unhandled_exception() { *value = std::current_exception(); }
+    void return_void() noexcept {} 
+    void unhandled_exception() noexcept { *value = std::current_exception(); }
 };
 
 }

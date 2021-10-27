@@ -11,48 +11,49 @@
 
 #include <uv.h> // libuv
 #include <getaddrinfo.hpp>
+#include <error_code.hpp>
 
 namespace couv
 {
     class tcp;
     class connector
     {
-        std::unique_ptr<uv_connect_t> req;
-        std::coroutine_handle<> co_handle;
-        int status;
+        struct connector_data {
+            uv_connect_t req;
+            std::coroutine_handle<> co_handle;
+            int status;
+        };
+
+        std::unique_ptr<connector_data> data;
 
     public:
 
         connector(const tcp& tcp, const char* ip, int port);
         connector(const tcp& tcp, const getaddrinfo&);
 
-        connector(connector&& c) :
-            req(std::move(c.req)),
-            co_handle(std::move(c.co_handle)),
-            status(std::move(c.status))
-        {
-            req->data = this;
-        }
+        connector(connector&&) = default;
+        connector& operator=(connector&&) = default;
 
         ~connector()
         {
-            if (req && status == 1) {
-                // pending callback
-                req->data = nullptr;
-                req.release();
+            [[unlikely]] if (data && data->status == 1) {
+                data->req.cb = [](uv_connect_t* req, int) {
+                    delete static_cast<connector_data*>(req->data);
+                };
+                data.release();
             }
         }
 
         bool await_ready() { 
-            return status <= 0; 
+            return data->status <= 0; 
         }
 
         void await_suspend(std::coroutine_handle<> h) {
-            co_handle = h;
+            data->co_handle = h;
         }
         
-        int await_resume() { 
-            return status;
+        error_code await_resume() { 
+            return data->status;
         }
     };
 }

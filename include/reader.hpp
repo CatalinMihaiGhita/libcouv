@@ -19,17 +19,18 @@ namespace couv
     {
         std::shared_ptr<uv_stream_t> stream;
         std::string buf;
-        ssize_t nread;
+        ssize_t nread{0};
         std::coroutine_handle<> co_handle;
+
     public:
         reader(const tcp&);
 
         reader(const reader&) = delete;
         reader(reader&& r) : 
             stream{std::move(r.stream)}, 
-            buf(std::move(r.buf)),
-            nread(std::move(r.nread)),
-            co_handle(std::move(r.co_handle))
+            buf{std::move(r.buf)},
+            nread{std::move(r.nread)},
+            co_handle{std::move(r.co_handle)}
         {
             stream->data = this;
         }
@@ -50,7 +51,7 @@ namespace couv
                 [](uv_stream_t* req, ssize_t nread, const uv_buf_t* buf) {
                     auto self = static_cast<reader*>(req->data);
                     self->nread = nread;
-                    if (self->co_handle)
+                    [[likely]] if (self->co_handle)
                         self->co_handle();
                 });
         }

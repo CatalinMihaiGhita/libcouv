@@ -15,24 +15,23 @@
 namespace couv 
 {
     template <typename T>
-    struct async_data
-    {
-        uv_async_t async_handle;
-        std::coroutine_handle<> co_handle;
-        std::mutex mutex;
-        T value;
-    };
-
-    template <typename T>
     class async;
 
     template <typename T = void>
     class async_sender
     {
-        std::shared_ptr<async_data<T>> data;
+        struct async_data
+        {
+            uv_async_t async_handle;
+            std::coroutine_handle<> co_handle;
+            std::mutex mutex;
+            T value;
+        };
+
+        std::shared_ptr<async_data> data;
         friend class async<T>;
 
-        async_sender(const std::shared_ptr<async_data<T>>& data) : data{data}
+        async_sender(const std::shared_ptr<async_data>& data) : data{data}
         {}
 
     public:
@@ -56,24 +55,25 @@ namespace couv
     template <typename T = void>
     class async
     {
-        std::shared_ptr<async_data<T>> data;
+        using async_data = typename async_sender<T>::async_data;
+        std::shared_ptr<async_data> data;
 
         struct async_deleter
         {
-            void operator()(async_data<T>* p) const {
+            void operator()(async_data* p) const {
                 uv_close(reinterpret_cast<uv_handle_t*>(&p->async_handle), [](uv_handle_t* req) {
-                    delete reinterpret_cast<async_data<T>*>(req->data);
+                    delete reinterpret_cast<async_data*>(req->data);
                 });
             }
         };
 
     public:
         async() : 
-            data{new async_data<T>, async_deleter{}}
+            data{new async_data, async_deleter{}}
         {
             data->async_handle.data = data.get();
             uv_async_init(uv_default_loop(), &data->async_handle, [] (uv_async_t *async_handle) {
-                auto self = static_cast<async_data<T>*>(async_handle->data);
+                auto self = static_cast<async_data*>(async_handle->data);
                 if (self->co_handle) {
                     self->co_handle();
                 }

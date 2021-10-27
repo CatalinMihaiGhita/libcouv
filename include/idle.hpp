@@ -16,66 +16,62 @@ namespace couv
 {
     class idle
     {
-        std::unique_ptr<uv_idle_t> idle_handle;
-        std::coroutine_handle<> co_handle;
-        int ready;
+        struct idle_data {
+            uv_idle_t idle_handle;
+            std::coroutine_handle<> co_handle;
+            int ready{0};
+        };
+
+        struct idle_deleter
+        {
+            void operator()(idle_data* data) const noexcept {
+                uv_close(reinterpret_cast<uv_handle_t*>(&data->idle_handle), [](uv_handle_t* idle_handle) {
+                    delete static_cast<idle_data*>(idle_handle->data);
+                });
+            }
+        };
+
+        std::unique_ptr<idle_data, idle_deleter> data;
 
     public:
         idle(bool autostart = false) : 
-            idle_handle{std::make_unique<uv_idle_t>()}, 
-            ready{0} 
+            data{new idle_data{}, idle_deleter{}}
         {
-            uv_idle_init(uv_default_loop(), idle_handle.get());
-            idle_handle->data = this;
+            uv_idle_init(uv_default_loop(), &data->idle_handle);
+            data->idle_handle.data = data.get();
             if (autostart) {
                 start();
             }
         }
 
-        idle(const idle&) = delete;
-        idle(idle&& t) : 
-            idle_handle{std::move(t.idle_handle)},
-            co_handle{std::move(t.co_handle)},
-            ready{t.ready}
-        {
-            idle_handle->data = this;
-        }
+        idle(idle&&) = default;
+        idle& operator=(idle&&) = default;
 
         error_code start() {
-            return uv_idle_start(idle_handle.get(), [](uv_idle_t* idle_handle) {
-                auto self = static_cast<idle*>(idle_handle->data);
-                ++self->ready;
-                if (self->co_handle) {
-                    self->co_handle();
+            return uv_idle_start(&data->idle_handle, [](uv_idle_t* idle_handle) {
+                auto data = static_cast<idle_data*>(idle_handle->data);
+                ++data->ready;
+                [[likely]] if (data->co_handle) {
+                    data->co_handle();
                 }
             });
         }
 
         error_code stop() {
-            return uv_idle_stop(idle_handle.get());
+            return uv_idle_stop(&data->idle_handle);
         }
 
         bool await_ready() { 
-            return ready; 
+            return data->ready; 
         }
 
         void await_suspend(std::coroutine_handle<> h) {
-            co_handle = h;
+            data->co_handle = h;
         }
         
         void await_resume() { 
-            co_handle = nullptr;
-            --ready; 
+            data->co_handle = nullptr;
+            --data->ready; 
         };
-
-        ~idle()
-        {
-            if (idle_handle) {
-                uv_close(reinterpret_cast<uv_handle_t*>(idle_handle.release()), 
-                [](uv_handle_t* req) {
-                    delete reinterpret_cast<uv_idle_t*>(req);
-                });
-            }
-        }
     };    
 }
